@@ -16,18 +16,22 @@
 // Used Nat Tuck's "sort-pipe.c" example from class
 
 
-// HELPERS
+// HELPERS for ops
 void routeInHelper(svec* left, svec* right);
 void routeOutHelper(svec* left, svec* right);
 void pipeHelper(svec* left, svec* right);
+void pipeHelperLeft(svec* left, svec* right, int arr[]);
+void pipeHelperRight(svec* right, int arr[]);
 void andHelper(svec* left, svec* right);
 void orHelper(svec* left, svec* right);
 void backgroundHelper(svec* vector);
 // STUBS
 void splitInTwo(svec* original, svec* left, svec* right, int index);
+int areThereMorePipes(svec* right);
 // SUB-MAIN
 void processTokens(svec* tokens);
 void execute(char* cmd, char* arg[]);
+void run(svec* cmd);
 
 
 // ------------------------------------------------------------------------- //
@@ -103,46 +107,45 @@ routeOutHelper(svec* left, svec* right) {
 // ------------------------------------------------------------------------- //
 
 // Helper for the pipe command
-// void
-// pipeHelper(svec* left, svec* right) {
-//
-//    int cpid, rv;
-//
-//    int pipes[2];
-//    rv = pipe(pipes);
-//    assert(rv != -1);
-//
-//    // pipes[0] is for reading
-//    // pipes[1] is for writing
-//
-//    if ((cpid = fork())) {
-//       // ** PARENT ** //
-//
-//       close(pipes[1]);
-//
-//       int status;
-//       waitpid(cpid, &status, 0);
-//
-//
-//    }
-//    else {
-//       // ** CHILD ** //
-//
-//       close(pipes[0]);
-//       close(1); // stdout
-//
-//       rv = dup(pipes[1]);
-//       assert(rv != -1);
-//
-//       rv = pipeHelperLeft(left, pipe[1]);
-//       assert(rv != -1);
-//       rv = pipeHelperRight(right, **);
-//       assert(rv != 1);
-//
-//       printf("%s\n", "DANGER: ran past execvp in PIPE-HELPER function.");
-//    }
-//
-// }
+void
+pipeHelper(svec* left, svec* right) {
+
+   // PIPE System Call
+   int pipeArr[2];
+   pipe(pipeArr);
+
+   if (!fork()) {
+      // ** CHILD ** //
+
+      // Close Std:out
+      close(1);
+      // Duplicate the Writing end of the pipe
+      dup(pipeArr[1]);
+      // Clean up!
+      close(pipeArr[0]);
+
+      // EXEC
+      processTokens(left);
+
+   } else {
+      // ** PARENT ** //
+
+      // int status;
+      // int cpid;
+      // waitpid(cpid, &status, 0);
+
+      // Close Std:In
+      close(0);
+      // Duplicate the reading end of the pipe
+      dup(pipeArr[0]);
+      // Clean up!
+      close(pipeArr[1]);
+      // EXEC
+      // Process additional tokens recursively
+      processTokens(right);
+   }
+}
+
 
 // ------------------------------------------------------------------------- //
 
@@ -171,15 +174,9 @@ andHelper(svec* left, svec* right) {
       // ** CHILD ** //
 
       // EXEC
-      char* command = svec_get(left, 0);
-      char* argument[50];
-      argument[0] = command;
-      for (int i = 1; i < left->size;i++) {
-         argument[i] = svec_get(left,i);
-      }
-      argument[left->size] = 0;
-      execvp(command, argument);
-      printf("%s\n", "DANGER: ran past execvp in AND function.");
+      run(left);
+
+      //printf("%s\n", "DANGER: ran past execvp in AND function.");
 
    }
 }
@@ -210,15 +207,8 @@ orHelper(svec* left, svec* right) {
       // ** CHILD ** //
 
       // EXEC
-      char* command = svec_get(left, 0);
-      char* argument[50];
-      argument[0] = command;
-      for (int i = 1; i < left->size;i++) {
-         argument[i] = svec_get(left,i);
-      }
-      argument[left->size] = 0;
-      execvp(command, argument);
-      printf("%s\n", "DANGER: ran past execvp in OR function.");
+      run(left);
+      //printf("%s\n", "DANGER: ran past execvp in OR function.");
    }
 }
 
@@ -241,16 +231,8 @@ backgroundHelper(svec* vector) {
       // ** CHILD ** //
 
       // EXEC
-      char* command = svec_get(vector, 0);
-      char* argument[50];
-      argument[0] = command;
-      // Capture the 2nd through second to last tokens as arguments
-      for (int i = 1; i < vector->size - 1;i++) {
-         argument[i] = svec_get(vector,i);
-      }
-      argument[vector->size] = 0;
-      execvp(command, argument);
-      printf("%s\n", "DANGER: ran past execvp in backgrounding function.");
+      run(vector);
+      //printf("%s\n", "DANGER: ran past execvp in backgrounding function.");
    }
 
 }
@@ -271,6 +253,20 @@ splitInTwo(svec* original, svec* left, svec* right, int index) {
          svec_push_back(right, svec_get(original,i));
       }
    }
+}
+
+// -------------------------------------------------------------------------- //
+
+// returns 0 if a | is detected.
+int
+areThereMorePipes(svec* right) {
+   for (int i = 0; i < right->size;i++) {
+      char* pipeSymbol = "|";
+      if (strcmp(svec_get(right, i), pipeSymbol) == 0) {
+         return 0;
+      }
+   }
+   return 1;
 }
 
 // ------------------------------------------------------------------------- //
@@ -305,7 +301,13 @@ processTokens(svec* tokens) {
          svec* left = make_svec();
          svec* right = make_svec();
          splitInTwo(tokens, left, right, index);
-         //pipeHelper(left, right);
+
+         // Check if there are more pipes.
+         if (areThereMorePipes(right)) {
+
+         }
+
+         pipeHelper(left, right);
          return;
       }
    }
@@ -386,9 +388,7 @@ processTokens(svec* tokens) {
       }
 
 
-
    } // end of big for-loop
-
 
 
    // Got to the end without forking somewhere else
@@ -417,6 +417,7 @@ processTokens(svec* tokens) {
 // Execute the passed in {cmd} with the specified {arg}
 // In a new process
 // {arg}'s first element must be {cmd}, and must be null-termianted.
+// Executes in a fork()
 void
 execute(char* cmd, char* arg[])
 {
@@ -424,39 +425,30 @@ execute(char* cmd, char* arg[])
 
    if ((cpid = fork())) {
       // parent process
-
-      // *********** TEST CODE *********
-      // printf("Parent pid: %d\n", getpid());
-      // printf("Parent knows child pid: %d\n", cpid);
-
-      // Child may still be running until we wait.
-
       int status;
       waitpid(cpid, &status, 0);
-
-
-      // *********** TEST CODE *********
-
-      // printf("== executed program complete ==\n");
-
-      // printf("child returned with wait code %d\n", status);
-      // if (WIFEXITED(status)) {
-      //    printf("child exited with exit code (or main returned) %d\n", WEXITSTATUS(status));
-      // }
-
    }
    else {
       // child process
-
-      // *********** TEST CODE *********
-      // printf("Child pid: %d\n", getpid());
-      // printf("Child knows parent pid: %d\n", getppid());
-
-      // printf("== executed program's output: ==\n");
-
       execvp(cmd, arg);
-      printf("==== EXEC ERROR ===");
+      //printf("==== EXEC ERROR ===");
    }
+}
+
+// ------------------------------------------------------------------------- //
+
+// Runs a command by setting up the correct arguments
+// and then passing off to execvp
+void
+run(svec* cmd) {
+   char* command = svec_get(cmd, 0);
+   char* argument[50];
+   argument[0] = command;
+   for (int i = 1; i < cmd->size;i++) {
+      argument[i] = svec_get(cmd,i);
+   }
+   argument[cmd->size] = 0;
+   execvp(command, argument);
 }
 
 // ------------------------------------------------------------------------- //
